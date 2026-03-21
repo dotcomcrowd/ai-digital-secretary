@@ -1,0 +1,338 @@
+{
+  "name": "Kindle Pipeline - PDF Ingestion & Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "notice": "",
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "operation": "list",
+        "useQueryString": true,
+        "queryString": "'YOUR_INBOX_FOLDER_ID' in parents and mimeType='application/pdf'",
+        "limit": 50,
+        "options": {}
+      },
+      "name": "List PDFs in Inbox",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 2,
+      "position": [520, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "maxItems": 1
+      },
+      "name": "Limit to 1 PDF",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [740, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "operation": "download",
+        "fileId": "={{ $json.id }}",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "name": "Download PDF",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 2,
+      "position": [960, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Convert the downloaded PDF binary to base64 for Claude API\nconst binaryData = $input.item.binary.data;\nconst base64Content = binaryData.data;\nconst fileName = binaryData.fileName || 'document.pdf';\nconst mimeType = binaryData.mimeType || 'application/pdf';\n\nreturn {\n  json: {\n    ...$input.item.json,\n    base64_pdf: base64Content,\n    file_name: fileName,\n    mime_type: mimeType\n  }\n};"
+      },
+      "name": "Base64 Encode PDF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 8192,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"document\",\n          \"source\": {\n            \"type\": \"base64\",\n            \"media_type\": \"{{ $json.mime_type }}\",\n            \"data\": \"{{ $json.base64_pdf }}\"\n          }\n        },\n        {\n          \"type\": \"text\",\n          \"text\": \"You are a Second Brain assistant using the PARA method (Projects, Areas, Resources, Archive).\\n\\nAnalyze this PDF document and extract ALL action items, tasks, ideas, projects, events, and reference notes.\\n\\nFor EACH item extracted, provide:\\n- action_description: clear description of the item\\n- priority: High, Medium, or Low\\n- item_type: one of Action, Project, Event, Reference, Idea\\n- domain: one of Work, Personal, Health, Finance, Learning\\n- para_category: one of Project, Area, Resource, Archive\\n- project: project name if applicable, otherwise empty string\\n- context: surrounding context or why this matters\\n- due_date: ISO date if mentioned, otherwise null\\n- event_time: time if mentioned, otherwise null\\n\\nReturn a valid JSON object with this exact structure:\\n{\\n  \\\"source_title\\\": \\\"title of the document\\\",\\n  \\\"source_date\\\": \\\"date if found\\\",\\n  \\\"summary\\\": \\\"2-3 sentence summary of the document\\\",\\n  \\\"action_items\\\": [\\n    {\\n      \\\"action_description\\\": \\\"...\\\",\\n      \\\"priority\\\": \\\"...\\\",\\n      \\\"item_type\\\": \\\"...\\\",\\n      \\\"domain\\\": \\\"...\\\",\\n      \\\"para_category\\\": \\\"...\\\",\\n      \\\"project\\\": \\\"...\\\",\\n      \\\"context\\\": \\\"...\\\",\\n      \\\"due_date\\\": null,\\n      \\\"event_time\\\": null\\n    }\\n  ]\\n}\\n\\nIMPORTANT: Return ONLY valid JSON. No markdown, no code fences, no explanation.\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "name": "Claude AI - OCR + Classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Claude API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Parse Claude's JSON response\nconst response = $input.item.json;\nlet content = '';\n\n// Extract text from Claude's response format\nif (response.content && Array.isArray(response.content)) {\n  content = response.content.map(c => c.text || '').join('');\n} else if (typeof response === 'string') {\n  content = response;\n}\n\n// Clean up: remove markdown code fences if present\ncontent = content.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\n// Parse the JSON\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch (e) {\n  // Try to extract JSON from the text\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('Could not parse Claude response as JSON: ' + content.substring(0, 200));\n  }\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    parsed_response: parsed,\n    source_title: parsed.source_title || 'Unknown',\n    source_date: parsed.source_date || new Date().toISOString().split('T')[0],\n    summary: parsed.summary || '',\n    action_items: parsed.action_items || [],\n    item_count: (parsed.action_items || []).length\n  }\n};"
+      },
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1620, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Build Obsidian-compatible Markdown from parsed response\nconst item = $input.item.json;\nconst parsed = item.parsed_response;\n\nlet md = `# ${parsed.source_title || 'Untitled'}\\n\\n`;\nmd += `**Date:** ${parsed.source_date || 'Unknown'}\\n`;\nmd += `**Summary:** ${parsed.summary || 'No summary'}\\n\\n`;\nmd += `---\\n\\n`;\nmd += `## Action Items\\n\\n`;\n\nconst actions = parsed.action_items || [];\nfor (const a of actions) {\n  const priority = a.priority === 'High' ? '\ud83d\udd34' : a.priority === 'Medium' ? '\ud83d\udfe1' : '\ud83d\udfe2';\n  md += `### ${priority} ${a.action_description}\\n`;\n  md += `- **Type:** ${a.item_type}\\n`;\n  md += `- **Domain:** ${a.domain}\\n`;\n  md += `- **PARA:** ${a.para_category}\\n`;\n  if (a.project) md += `- **Project:** ${a.project}\\n`;\n  if (a.context) md += `- **Context:** ${a.context}\\n`;\n  if (a.due_date) md += `- **Due:** ${a.due_date}\\n`;\n  md += `\\n`;\n}\n\nreturn {\n  json: {\n    ...item,\n    obsidian_markdown: md,\n    file_name_md: (parsed.source_title || 'note').replace(/[^a-zA-Z0-9\\s-]/g, '').replace(/\\s+/g, '_') + '.md'\n  }\n};"
+      },
+      "name": "Build Obsidian Markdown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1840, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Split action_items array into individual items for Notion processing\nconst item = $input.item.json;\nconst actions = item.action_items || [];\nconst sourceTitle = item.source_title || 'Unknown';\nconst sourceDate = item.source_date || new Date().toISOString().split('T')[0];\nconst fileName = item.file_name || 'unknown.pdf';\n\nconst results = actions.map(a => ({\n  json: {\n    action_description: a.action_description || '',\n    priority: a.priority || 'Medium',\n    item_type: a.item_type || 'Action',\n    domain: a.domain || 'Personal',\n    para_category: a.para_category || 'Area',\n    project: a.project || '',\n    context: a.context || '',\n    due_date: a.due_date || null,\n    event_time: a.event_time || null,\n    source_title: sourceTitle,\n    source_date: sourceDate,\n    source_file: fileName\n  }\n}));\n\nreturn results;"
+      },
+      "name": "Split Action Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2060, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Build the Notion API request body for each action item\nconst item = $json;\n\n// === EMOJI MAPPINGS ===\nconst priorityMap = { 'High': '\ud83d\udd34 High', 'Medium': '\ud83d\udfe1 Medium', 'Low': '\ud83d\udfe2 Low' };\nconst typeMap = { 'Action': '\u2705 Action', 'Project': '\ud83d\udccb Project', 'Event': '\ud83d\udcc5 Event', 'Reference': '\ud83d\udcda Reference', 'Idea': '\ud83d\udca1 Idea' };\nconst paraMap = { 'Project': '\ud83d\udcc1 Project', 'Area': '\ud83c\udfe0 Area', 'Resource': '\ud83d\udcda Resource', 'Archive': '\ud83d\uddc4\ufe0f Archive' };\nconst domainMap = { 'Work': '\ud83c\udfe2 Work', 'Personal': '\ud83c\udfe0 Personal', 'Health': '\ud83d\udcaa Health', 'Finance': '\ud83d\udcb0 Finance', 'Learning': '\ud83d\udcd6 Learning' };\n\n// === BUILD PROPERTIES ===\nconst properties = {};\n\n// Title\nproperties['Action Item'] = { title: [{ text: { content: item.action_description || 'Untitled' } }] };\n\n// Select properties\nproperties['Priority'] = { select: { name: priorityMap[item.priority] || '\ud83d\udfe1 Medium' } };\nproperties['Type'] = { select: { name: typeMap[item.item_type] || '\u2705 Action' } };\nproperties['Domain'] = { select: { name: domainMap[item.domain] || '\ud83c\udfe0 Personal' } };\nproperties['PARA Category'] = { select: { name: paraMap[item.para_category] || '\ud83c\udfe0 Area' } };\nproperties['Status'] = { select: { name: '\ud83d\udce5 Inbox' } };\nproperties['Review Status'] = { select: { name: 'Pending Review' } };\n\n// Text properties\nif (item.context) {\n  properties['Context'] = { rich_text: [{ text: { content: item.context } }] };\n}\nif (item.project) {\n  properties['Project'] = { rich_text: [{ text: { content: item.project } }] };\n}\nif (item.source_file) {\n  properties['Source PDF'] = { rich_text: [{ text: { content: item.source_file } }] };\n}\n\n// Date properties\nproperties['Captured'] = { date: { start: new Date().toISOString().split('T')[0] } };\nif (item.due_date) {\n  properties['Due Date'] = { date: { start: item.due_date } };\n}\nif (item.event_time) {\n  properties['Event Time'] = { rich_text: [{ text: { content: item.event_time } }] };\n}\n\n// === ASSEMBLE FULL BODY ===\nconst body = {\n  parent: { database_id: \"YOUR_NOTION_DATABASE_ID\" },\n  properties: properties,\n  children: [\n    {\n      object: \"block\",\n      type: \"heading_2\",\n      heading_2: { rich_text: [{ type: \"text\", text: { content: \"Context\" } }] }\n    },\n    {\n      object: \"block\",\n      type: \"paragraph\",\n      paragraph: { rich_text: [{ type: \"text\", text: { content: item.context || \"No additional context\" } }] }\n    },\n    {\n      object: \"block\",\n      type: \"heading_2\",\n      heading_2: { rich_text: [{ type: \"text\", text: { content: \"Source Details\" } }] }\n    },\n    {\n      object: \"block\",\n      type: \"paragraph\",\n      paragraph: { rich_text: [{ type: \"text\", text: { content: \"Priority: \" + (item.priority || \"N/A\") + \" | Type: \" + (item.item_type || \"N/A\") + \" | Domain: \" + (item.domain || \"N/A\") } }] }\n    },\n    {\n      object: \"block\",\n      type: \"paragraph\",\n      paragraph: { rich_text: [{ type: \"text\", text: { content: \"Project: \" + (item.project || \"N/A\") + \" | PARA: \" + (item.para_category || \"N/A\") } }] }\n    },\n    ...(item.due_date ? [{\n      object: \"block\",\n      type: \"paragraph\",\n      paragraph: { rich_text: [{ type: \"text\", text: { content: \"Due: \" + item.due_date + (item.event_time ? \" at \" + item.event_time : \"\") } }] }\n    }] : [])\n  ]\n};\n\nreturn { json: { ...item, _notion_body: body } };"
+      },
+      "name": "Build Notion API Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2280, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Notion-Version", "value": "2022-06-28" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._notion_body) }}",
+        "options": {}
+      },
+      "name": "Create Notion Action Item",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [2500, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Notion API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "operation": "copy",
+        "fileId": "={{ $('Download PDF').item.json.id }}",
+        "options": {
+          "parents": ["YOUR_PROCESSED_FOLDER_ID"]
+        }
+      },
+      "name": "Copy PDF to Processed",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 2,
+      "position": [2060, 520],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "operation": "copy",
+        "fileId": "={{ $('Download PDF').item.json.id }}",
+        "options": {
+          "parents": ["YOUR_KINDLE_EXPORTS_FOLDER_ID"]
+        }
+      },
+      "name": "Archive PDF to Kindle-Exports",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 2,
+      "position": [2280, 520],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "operation": "delete",
+        "fileId": "={{ $('Download PDF').item.json.id }}",
+        "options": {}
+      },
+      "name": "Delete Original from Inbox",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 2,
+      "position": [2500, 520],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "notice": ""
+      },
+      "name": "On Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [260, 640]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "YOUR_EMAIL@gmail.com",
+        "subject": "=Pipeline Error: {{ $json.workflow.name }}",
+        "emailType": "text",
+        "message": "=Error in workflow \"{{ $json.workflow.name }}\":\n\nNode: {{ $json.execution.error.node.name }}\nMessage: {{ $json.execution.error.message }}\n\nExecution ID: {{ $json.execution.id }}\nTimestamp: {{ new Date().toISOString() }}",
+        "options": {}
+      },
+      "name": "Error Notification Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [520, 640],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [[{ "node": "List PDFs in Inbox", "type": "main", "index": 0 }]]
+    },
+    "List PDFs in Inbox": {
+      "main": [[{ "node": "Limit to 1 PDF", "type": "main", "index": 0 }]]
+    },
+    "Limit to 1 PDF": {
+      "main": [[{ "node": "Download PDF", "type": "main", "index": 0 }]]
+    },
+    "Download PDF": {
+      "main": [[{ "node": "Base64 Encode PDF", "type": "main", "index": 0 }]]
+    },
+    "Base64 Encode PDF": {
+      "main": [[{ "node": "Claude AI - OCR + Classify", "type": "main", "index": 0 }]]
+    },
+    "Claude AI - OCR + Classify": {
+      "main": [[{ "node": "Parse Claude Response", "type": "main", "index": 0 }]]
+    },
+    "Parse Claude Response": {
+      "main": [[{ "node": "Build Obsidian Markdown", "type": "main", "index": 0 }]]
+    },
+    "Build Obsidian Markdown": {
+      "main": [
+        [
+          { "node": "Split Action Items", "type": "main", "index": 0 },
+          { "node": "Copy PDF to Processed", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Split Action Items": {
+      "main": [[{ "node": "Build Notion API Body", "type": "main", "index": 0 }]]
+    },
+    "Build Notion API Body": {
+      "main": [[{ "node": "Create Notion Action Item", "type": "main", "index": 0 }]]
+    },
+    "Create Notion Action Item": {
+      "main": [[]]
+    },
+    "Copy PDF to Processed": {
+      "main": [[{ "node": "Archive PDF to Kindle-Exports", "type": "main", "index": 0 }]]
+    },
+    "Archive PDF to Kindle-Exports": {
+      "main": [[{ "node": "Delete Original from Inbox", "type": "main", "index": 0 }]]
+    },
+    "On Error": {
+      "main": [[{ "node": "Error Notification Email", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "pinData": {},
+  "_templateNotes": {
+    "SETUP_INSTRUCTIONS": "Replace all placeholder values before activating:",
+    "1_GOOGLE_DRIVE": "Replace YOUR_INBOX_FOLDER_ID, YOUR_PROCESSED_FOLDER_ID, YOUR_KINDLE_EXPORTS_FOLDER_ID with your Google Drive folder IDs",
+    "2_NOTION": "Replace YOUR_NOTION_DATABASE_ID with your Notion Action Items database ID",
+    "3_EMAIL": "Replace YOUR_EMAIL@gmail.com with your notification email",
+    "4_CREDENTIALS": "Replace all REPLACE_WITH_YOUR_CREDENTIAL_ID entries with your n8n credential IDs after setting up OAuth and API keys",
+    "5_CLAUDE_API": "Set up an HTTP Header Auth credential with name 'x-api-key' and your Anthropic API key as the value",
+    "6_NOTION_API": "Set up an HTTP Header Auth credential with name 'Authorization' and value 'Bearer YOUR_NOTION_INTEGRATION_TOKEN'"
+  }
+}
