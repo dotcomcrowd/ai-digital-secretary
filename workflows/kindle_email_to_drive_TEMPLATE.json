@@ -1,0 +1,129 @@
+{
+  "name": "Kindle Email to Drive Inbox",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute",
+              "minute": 5
+            }
+          ]
+        },
+        "filters": {
+          "sender": "do-not-reply@amazon.com",
+          "subject": "from your Kindle",
+          "readStatus": "unread"
+        },
+        "options": {
+          "downloadAttachments": false
+        }
+      },
+      "id": "gmail-trigger-001",
+      "name": "Watch for Kindle Emails",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [260, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the PDF download URL from Amazon Kindle email\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const html = item.json.html || item.json.textHtml || '';\n  const text = item.json.text || item.json.textPlain || '';\n  const subject = item.json.subject || '';\n  \n  let downloadUrl = '';\n  \n  // Strategy 1: Look for Amazon download links in href attributes\n  const hrefRegex = /href=[\"']([^\"']*amazon[^\"']*(?:download|file|attachment)[^\"']*)[\"']/gi;\n  const allHrefs = [...html.matchAll(hrefRegex)];\n  if (allHrefs.length > 0) {\n    downloadUrl = allHrefs[0][1];\n  }\n  \n  // Strategy 2: Look for any download/file-download links\n  if (!downloadUrl) {\n    const dlRegex = /href=[\"'](https?:\\/\\/[^\"']*(?:download|file-download|attachment)[^\"']*)[\"']/gi;\n    const dlMatch = dlRegex.exec(html);\n    if (dlMatch) downloadUrl = dlMatch[1];\n  }\n  \n  // Strategy 3: Look for Amazon URLs with \"download\" or \"file\" in plain text\n  if (!downloadUrl) {\n    const textUrlRegex = /(https?:\\/\\/[^\\s]*amazon[^\\s]*(?:download|file)[^\\s]*)/gi;\n    const textMatch = textUrlRegex.exec(text);\n    if (textMatch) downloadUrl = textMatch[1];\n  }\n  \n  // Strategy 4: Look for any link that ends in .pdf\n  if (!downloadUrl) {\n    const pdfRegex = /href=[\"'](https?:\\/\\/[^\"']*\\.pdf[^\"']*)[\"']/gi;\n    const pdfMatch = pdfRegex.exec(html);\n    if (pdfMatch) downloadUrl = pdfMatch[1];\n  }\n  \n  // Strategy 5: Look for \"Download PDF\" button link text\n  if (!downloadUrl) {\n    const btnRegex = /href=[\"'](https?:\\/\\/[^\"']+)[\"'][^>]*>(?:[^<]*(?:Download|View)[^<]*PDF[^<]*)<\\/a>/gi;\n    const btnMatch = btnRegex.exec(html);\n    if (btnMatch) downloadUrl = btnMatch[1];\n  }\n  \n  // Extract notebook name from subject line\n  let notebookName = 'Kindle_Note';\n  const nameMatch = subject.match(/sent a file [\"\\u201c]([^\"\\u201d]+)[\"\\u201d]/i);\n  if (nameMatch) {\n    notebookName = nameMatch[1].replace(/[^a-zA-Z0-9\\s-]/g, '').replace(/\\s+/g, '_');\n  }\n  \n  if (!downloadUrl) {\n    throw new Error('Could not find PDF download URL in email. Subject: ' + subject + '. HTML length: ' + html.length);\n  }\n  \n  // Decode HTML entities in the URL\n  downloadUrl = downloadUrl.replace(/&amp;/g, '&');\n  \n  results.push({\n    json: {\n      downloadUrl: downloadUrl,\n      notebookName: notebookName,\n      emailSubject: subject,\n      emailDate: item.json.date || new Date().toISOString(),\n      fileName: notebookName + '.pdf'\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "code-extract-url-002",
+      "name": "Extract Download URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.downloadUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "http-download-003",
+      "name": "Download PDF from Amazon",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $('Extract Download URL').item.json.fileName }}",
+        "folderId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_DRIVE_INBOX_FOLDER_ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "gdrive-upload-004",
+      "name": "Upload to Drive Inbox",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1040, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Watch for Kindle Emails": {
+      "main": [
+        [
+          {
+            "node": "Extract Download URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Download URL": {
+      "main": [
+        [
+          {
+            "node": "Download PDF from Amazon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PDF from Amazon": {
+      "main": [
+        [
+          {
+            "node": "Upload to Drive Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "pinData": {}
+}
