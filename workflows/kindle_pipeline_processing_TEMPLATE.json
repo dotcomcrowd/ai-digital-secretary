@@ -1,5 +1,18 @@
 {
   "name": "Kindle Pipeline - PDF Ingestion & Processing",
+  "_templateNotes": {
+    "TYPE": "SKELETON TEMPLATE \u2014 Preview Only",
+    "DESCRIPTION": "This skeleton shows the workflow architecture (nodes, connections, positions) but does NOT include the full implementation code. Code nodes contain placeholder stubs and the Claude AI prompt has been redacted. It is provided so you can see how the 14-node automation pipeline is structured before enrolling.",
+    "FULL_VERSION": "The complete, production-ready workflow with all code and the full PARA-method Claude prompt is available inside the AI Digital Secretary course.",
+    "ENROLL": "https://www.skool.com/dotcomcrowd-4789/classroom/6ed88903",
+    "SETUP_INSTRUCTIONS": "Replace all placeholder values before activating:",
+    "1_GOOGLE_DRIVE": "Replace YOUR_INBOX_FOLDER_ID, YOUR_PROCESSED_FOLDER_ID, YOUR_KINDLE_EXPORTS_FOLDER_ID with your Google Drive folder IDs",
+    "2_NOTION": "Replace YOUR_NOTION_DATABASE_ID with your Notion Action Items database ID",
+    "3_EMAIL": "Replace YOUR_EMAIL@gmail.com with your notification email",
+    "4_CREDENTIALS": "Replace all REPLACE_WITH_YOUR_CREDENTIAL_ID entries with your n8n credential IDs after setting up OAuth and API keys",
+    "5_CLAUDE_API": "Set up an HTTP Header Auth credential with name 'x-api-key' and your Anthropic API key as the value",
+    "6_NOTION_API": "Set up an HTTP Header Auth credential with name 'Authorization' and value 'Bearer YOUR_NOTION_INTEGRATION_TOKEN'"
+  },
   "nodes": [
     {
       "parameters": {
@@ -67,7 +80,7 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "// Convert the downloaded PDF binary to base64 for Claude API\nconst binaryData = $input.item.binary.data;\nconst base64Content = binaryData.data;\nconst fileName = binaryData.fileName || 'document.pdf';\nconst mimeType = binaryData.mimeType || 'application/pdf';\n\nreturn {\n  json: {\n    ...$input.item.json,\n    base64_pdf: base64Content,\n    file_name: fileName,\n    mime_type: mimeType\n  }\n};"
+        "jsCode": "// Converts downloaded PDF binary to base64 for Claude API\n// Full implementation available in the AI Digital Secretary course\n// Enroll: https://www.skool.com/dotcomcrowd-4789/classroom/6ed88903\n\nthrow new Error('Skeleton template \u2014 enroll for the complete workflow');"
       },
       "name": "Base64 Encode PDF",
       "type": "n8n-nodes-base.code",
@@ -89,7 +102,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 8192,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"document\",\n          \"source\": {\n            \"type\": \"base64\",\n            \"media_type\": \"{{ $json.mime_type }}\",\n            \"data\": \"{{ $json.base64_pdf }}\"\n          }\n        },\n        {\n          \"type\": \"text\",\n          \"text\": \"You are a Second Brain assistant using the PARA method (Projects, Areas, Resources, Archive).\\n\\nAnalyze this PDF document and extract ALL action items, tasks, ideas, projects, events, and reference notes.\\n\\nFor EACH item extracted, provide:\\n- action_description: clear description of the item\\n- priority: High, Medium, or Low\\n- item_type: one of Action, Project, Event, Reference, Idea\\n- domain: one of Work, Personal, Health, Finance, Learning\\n- para_category: one of Project, Area, Resource, Archive\\n- project: project name if applicable, otherwise empty string\\n- context: surrounding context or why this matters\\n- due_date: ISO date if mentioned, otherwise null\\n- event_time: time if mentioned, otherwise null\\n\\nReturn a valid JSON object with this exact structure:\\n{\\n  \\\"source_title\\\": \\\"title of the document\\\",\\n  \\\"source_date\\\": \\\"date if found\\\",\\n  \\\"summary\\\": \\\"2-3 sentence summary of the document\\\",\\n  \\\"action_items\\\": [\\n    {\\n      \\\"action_description\\\": \\\"...\\\",\\n      \\\"priority\\\": \\\"...\\\",\\n      \\\"item_type\\\": \\\"...\\\",\\n      \\\"domain\\\": \\\"...\\\",\\n      \\\"para_category\\\": \\\"...\\\",\\n      \\\"project\\\": \\\"...\\\",\\n      \\\"context\\\": \\\"...\\\",\\n      \\\"due_date\\\": null,\\n      \\\"event_time\\\": null\\n    }\\n  ]\\n}\\n\\nIMPORTANT: Return ONLY valid JSON. No markdown, no code fences, no explanation.\"\n        }\n      ]\n    }\n  ]\n}",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 8192,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"document\",\n          \"source\": {\n            \"type\": \"base64\",\n            \"media_type\": \"{{ $json.mime_type }}\",\n            \"data\": \"{{ $json.base64_pdf }}\"\n          }\n        },\n        {\n          \"type\": \"text\",\n          \"text\": \"[SKELETON] This node sends the PDF to Claude for OCR and PARA-method classification.\\n\\nThe full prompt instructs Claude to:\\n- Analyze the PDF document\\n- Extract all action items, tasks, ideas, projects, events, and references\\n- Classify each item using the PARA method (Projects, Areas, Resources, Archive)\\n- Return structured JSON with fields including: action_description, priority, item_type, domain, para_category, project, context, due_date, event_time\\n\\nThe complete prompt is available in the AI Digital Secretary course.\\nEnroll: https://www.skool.com/dotcomcrowd-4789/classroom/6ed88903\"\n        }\n      ]\n    }\n  ]\n}",
         "options": {}
       },
       "name": "Claude AI - OCR + Classify",
@@ -107,7 +120,7 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "// Parse Claude's JSON response\nconst response = $input.item.json;\nlet content = '';\n\n// Extract text from Claude's response format\nif (response.content && Array.isArray(response.content)) {\n  content = response.content.map(c => c.text || '').join('');\n} else if (typeof response === 'string') {\n  content = response;\n}\n\n// Clean up: remove markdown code fences if present\ncontent = content.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\n// Parse the JSON\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch (e) {\n  // Try to extract JSON from the text\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('Could not parse Claude response as JSON: ' + content.substring(0, 200));\n  }\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    parsed_response: parsed,\n    source_title: parsed.source_title || 'Unknown',\n    source_date: parsed.source_date || new Date().toISOString().split('T')[0],\n    summary: parsed.summary || '',\n    action_items: parsed.action_items || [],\n    item_count: (parsed.action_items || []).length\n  }\n};"
+        "jsCode": "// Parses Claude's JSON response, handling code fences and edge cases\n// Full implementation available in the AI Digital Secretary course\n// Enroll: https://www.skool.com/dotcomcrowd-4789/classroom/6ed88903\n\nthrow new Error('Skeleton template \u2014 enroll for the complete workflow');"
       },
       "name": "Parse Claude Response",
       "type": "n8n-nodes-base.code",
@@ -118,7 +131,7 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "// Build Obsidian-compatible Markdown from parsed response\nconst item = $input.item.json;\nconst parsed = item.parsed_response;\n\nlet md = `# ${parsed.source_title || 'Untitled'}\\n\\n`;\nmd += `**Date:** ${parsed.source_date || 'Unknown'}\\n`;\nmd += `**Summary:** ${parsed.summary || 'No summary'}\\n\\n`;\nmd += `---\\n\\n`;\nmd += `## Action Items\\n\\n`;\n\nconst actions = parsed.action_items || [];\nfor (const a of actions) {\n  const priority = a.priority === 'High' ? '\ud83d\udd34' : a.priority === 'Medium' ? '\ud83d\udfe1' : '\ud83d\udfe2';\n  md += `### ${priority} ${a.action_description}\\n`;\n  md += `- **Type:** ${a.item_type}\\n`;\n  md += `- **Domain:** ${a.domain}\\n`;\n  md += `- **PARA:** ${a.para_category}\\n`;\n  if (a.project) md += `- **Project:** ${a.project}\\n`;\n  if (a.context) md += `- **Context:** ${a.context}\\n`;\n  if (a.due_date) md += `- **Due:** ${a.due_date}\\n`;\n  md += `\\n`;\n}\n\nreturn {\n  json: {\n    ...item,\n    obsidian_markdown: md,\n    file_name_md: (parsed.source_title || 'note').replace(/[^a-zA-Z0-9\\s-]/g, '').replace(/\\s+/g, '_') + '.md'\n  }\n};"
+        "jsCode": "// Builds Obsidian-compatible Markdown with PARA headings and priority indicators\n// Full implementation available in the AI Digital Secretary course\n// Enroll: https://www.skool.com/dotcomcrowd-4789/classroom/6ed88903\n\nthrow new Error('Skeleton template \u2014 enroll for the complete workflow');"
       },
       "name": "Build Obsidian Markdown",
       "type": "n8n-nodes-base.code",
@@ -129,7 +142,7 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "// Split action_items array into individual items for Notion processing\nconst item = $input.item.json;\nconst actions = item.action_items || [];\nconst sourceTitle = item.source_title || 'Unknown';\nconst sourceDate = item.source_date || new Date().toISOString().split('T')[0];\nconst fileName = item.file_name || 'unknown.pdf';\n\nconst results = actions.map(a => ({\n  json: {\n    action_description: a.action_description || '',\n    priority: a.priority || 'Medium',\n    item_type: a.item_type || 'Action',\n    domain: a.domain || 'Personal',\n    para_category: a.para_category || 'Area',\n    project: a.project || '',\n    context: a.context || '',\n    due_date: a.due_date || null,\n    event_time: a.event_time || null,\n    source_title: sourceTitle,\n    source_date: sourceDate,\n    source_file: fileName\n  }\n}));\n\nreturn results;"
+        "jsCode": "// Splits the action_items array into individual items for Notion row creation\n// Full implementation available in the AI Digital Secretary course\n// Enroll: https://www.skool.com/dotcomcrowd-4789/classroom/6ed88903\n\nthrow new Error('Skeleton template \u2014 enroll for the complete workflow');"
       },
       "name": "Split Action Items",
       "type": "n8n-nodes-base.code",
@@ -140,7 +153,7 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "// Build the Notion API request body for each action item\nconst item = $json;\n\n// === EMOJI MAPPINGS ===\nconst priorityMap = { 'High': '\ud83d\udd34 High', 'Medium': '\ud83d\udfe1 Medium', 'Low': '\ud83d\udfe2 Low' };\nconst typeMap = { 'Action': '\u2705 Action', 'Project': '\ud83d\udccb Project', 'Event': '\ud83d\udcc5 Event', 'Reference': '\ud83d\udcda Reference', 'Idea': '\ud83d\udca1 Idea' };\nconst paraMap = { 'Project': '\ud83d\udcc1 Project', 'Area': '\ud83c\udfe0 Area', 'Resource': '\ud83d\udcda Resource', 'Archive': '\ud83d\uddc4\ufe0f Archive' };\nconst domainMap = { 'Work': '\ud83c\udfe2 Work', 'Personal': '\ud83c\udfe0 Personal', 'Health': '\ud83d\udcaa Health', 'Finance': '\ud83d\udcb0 Finance', 'Learning': '\ud83d\udcd6 Learning' };\n\n// === BUILD PROPERTIES ===\nconst properties = {};\n\n// Title\nproperties['Action Item'] = { title: [{ text: { content: item.action_description || 'Untitled' } }] };\n\n// Select properties\nproperties['Priority'] = { select: { name: priorityMap[item.priority] || '\ud83d\udfe1 Medium' } };\nproperties['Type'] = { select: { name: typeMap[item.item_type] || '\u2705 Action' } };\nproperties['Domain'] = { select: { name: domainMap[item.domain] || '\ud83c\udfe0 Personal' } };\nproperties['PARA Category'] = { select: { name: paraMap[item.para_category] || '\ud83c\udfe0 Area' } };\nproperties['Status'] = { select: { name: '\ud83d\udce5 Inbox' } };\nproperties['Review Status'] = { select: { name: 'Pending Review' } };\n\n// Text properties\nif (item.context) {\n  properties['Context'] = { rich_text: [{ text: { content: item.context } }] };\n}\nif (item.project) {\n  properties['Project'] = { rich_text: [{ text: { content: item.project } }] };\n}\nif (item.source_file) {\n  properties['Source PDF'] = { rich_text: [{ text: { content: item.source_file } }] };\n}\n\n// Date properties\nproperties['Captured'] = { date: { start: new Date().toISOString().split('T')[0] } };\nif (item.due_date) {\n  properties['Due Date'] = { date: { start: item.due_date } };\n}\nif (item.event_time) {\n  properties['Event Time'] = { rich_text: [{ text: { content: item.event_time } }] };\n}\n\n// === ASSEMBLE FULL BODY ===\nconst body = {\n  parent: { database_id: \"YOUR_NOTION_DATABASE_ID\" },\n  properties: properties,\n  children: [\n    {\n      object: \"block\",\n      type: \"heading_2\",\n      heading_2: { rich_text: [{ type: \"text\", text: { content: \"Context\" } }] }\n    },\n    {\n      object: \"block\",\n      type: \"paragraph\",\n      paragraph: { rich_text: [{ type: \"text\", text: { content: item.context || \"No additional context\" } }] }\n    },\n    {\n      object: \"block\",\n      type: \"heading_2\",\n      heading_2: { rich_text: [{ type: \"text\", text: { content: \"Source Details\" } }] }\n    },\n    {\n      object: \"block\",\n      type: \"paragraph\",\n      paragraph: { rich_text: [{ type: \"text\", text: { content: \"Priority: \" + (item.priority || \"N/A\") + \" | Type: \" + (item.item_type || \"N/A\") + \" | Domain: \" + (item.domain || \"N/A\") } }] }\n    },\n    {\n      object: \"block\",\n      type: \"paragraph\",\n      paragraph: { rich_text: [{ type: \"text\", text: { content: \"Project: \" + (item.project || \"N/A\") + \" | PARA: \" + (item.para_category || \"N/A\") } }] }\n    },\n    ...(item.due_date ? [{\n      object: \"block\",\n      type: \"paragraph\",\n      paragraph: { rich_text: [{ type: \"text\", text: { content: \"Due: \" + item.due_date + (item.event_time ? \" at \" + item.event_time : \"\") } }] }\n    }] : [])\n  ]\n};\n\nreturn { json: { ...item, _notion_body: body } };"
+        "jsCode": "// Builds the Notion API request body with PARA properties for each action item\n// Full implementation available in the AI Digital Secretary course\n// Enroll: https://www.skool.com/dotcomcrowd-4789/classroom/6ed88903\n\nthrow new Error('Skeleton template \u2014 enroll for the complete workflow');"
       },
       "name": "Build Notion API Body",
       "type": "n8n-nodes-base.code",
@@ -325,14 +338,5 @@
   "staticData": null,
   "tags": [],
   "triggerCount": 1,
-  "pinData": {},
-  "_templateNotes": {
-    "SETUP_INSTRUCTIONS": "Replace all placeholder values before activating:",
-    "1_GOOGLE_DRIVE": "Replace YOUR_INBOX_FOLDER_ID, YOUR_PROCESSED_FOLDER_ID, YOUR_KINDLE_EXPORTS_FOLDER_ID with your Google Drive folder IDs",
-    "2_NOTION": "Replace YOUR_NOTION_DATABASE_ID with your Notion Action Items database ID",
-    "3_EMAIL": "Replace YOUR_EMAIL@gmail.com with your notification email",
-    "4_CREDENTIALS": "Replace all REPLACE_WITH_YOUR_CREDENTIAL_ID entries with your n8n credential IDs after setting up OAuth and API keys",
-    "5_CLAUDE_API": "Set up an HTTP Header Auth credential with name 'x-api-key' and your Anthropic API key as the value",
-    "6_NOTION_API": "Set up an HTTP Header Auth credential with name 'Authorization' and value 'Bearer YOUR_NOTION_INTEGRATION_TOKEN'"
-  }
+  "pinData": {}
 }
