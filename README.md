@@ -79,7 +79,7 @@ These are the n8n workflow JSON files used in the course. **Import them directly
 | **Claude AI** | Text extraction & classification | Pay-per-use API |
 | **Notion** | Second Brain database | Free tier works |
 | **Google Drive** | File staging & storage | Free tier works |
-| **Kindle** | Reading & highlighting | $59 Fire tablet |
+| **Kindle** | Reading & highlighting | $59 Fire tablet or $400 - $500 Kindle Scribe (reccomemnded)|
 
 ---
 
